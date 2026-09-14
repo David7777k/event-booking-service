@@ -1,0 +1,11 @@
+# Normalise line endings so the repository stays identical across platforms.
+* text=auto eol=lf
+
+# Windows scripts must keep CRLF or cmd.exe cannot parse them.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# The Maven wrapper is executed by /bin/sh in CI and must stay LF.
+mvnw text eol=lf
+
+*.jar binary
