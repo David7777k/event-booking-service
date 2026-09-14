@@ -1,0 +1,10 @@
+spring:
+  application:
+    name: seatflow
+
+server:
+  port: 8080
+
+logging:
+  level:
+    io.github.david7777k.seatflow: DEBUG
