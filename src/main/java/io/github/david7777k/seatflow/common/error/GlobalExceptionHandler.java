@@ -7,7 +7,9 @@ import org.postgresql.util.PSQLException;
 import org.postgresql.util.ServerErrorMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -181,6 +183,44 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             }
         }
         return null;
+    }
+
+    /**
+     * Somebody changed the row between our reading it and writing it.
+     *
+     * <p>The booking path locks its rows and should never reach this, but any
+     * path that updates a seat without locking first would, and the version
+     * column exists precisely to catch that. Reported as a conflict, since from
+     * the caller's side it is the same situation as losing a seat.
+     */
+    @ExceptionHandler(OptimisticLockingFailureException.class)
+    ProblemDetail handleOptimisticLockFailure(OptimisticLockingFailureException ex) {
+        log.warn("Concurrent modification detected", ex);
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+                HttpStatus.CONFLICT, "The resource was modified concurrently, please retry");
+        problem.setTitle("Concurrent modification");
+        return problem;
+    }
+
+    /**
+     * The lock could not be taken within the timeout.
+     *
+     * <p>503 with Retry-After, not 409: nothing about the request is wrong and
+     * repeating it may well succeed. This is back pressure, and saying so lets
+     * a client back off instead of hammering.
+     */
+    @ExceptionHandler(CannotAcquireLockException.class)
+    ResponseEntity<ProblemDetail> handleLockTimeout(CannotAcquireLockException ex) {
+        log.warn("Timed out waiting for a row lock", ex);
+
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "The seats you asked for are busy right now, please retry");
+        problem.setTitle("Busy");
+
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, "2")
+                .body(problem);
     }
 
     /**
