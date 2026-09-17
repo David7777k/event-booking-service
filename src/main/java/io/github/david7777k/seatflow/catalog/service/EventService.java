@@ -14,13 +14,18 @@ import io.github.david7777k.seatflow.catalog.web.dto.CreateEventRequest;
 import io.github.david7777k.seatflow.catalog.web.dto.EventResponse;
 import io.github.david7777k.seatflow.catalog.web.dto.EventSeatMapResponse;
 import io.github.david7777k.seatflow.catalog.web.dto.EventSeatResponse;
+import io.github.david7777k.seatflow.catalog.web.dto.EventSummaryResponse;
 import io.github.david7777k.seatflow.common.error.ConflictException;
 import io.github.david7777k.seatflow.common.error.ResourceNotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.List;
 
 @Service
@@ -116,6 +121,34 @@ public class EventService {
         log.debug("Cancelled event {}", eventId);
 
         return toResponse(event);
+    }
+
+    /**
+     * Searches published events.
+     *
+     * <p>The incoming {@code Pageable} is reduced to page number and size: the
+     * ordering is part of the query - relevance first, then start time - and is
+     * not something a caller may override. Letting Spring Data append a sort
+     * clause to a native query that already has one would produce a statement
+     * whose ordering depends on which half wins.
+     *
+     * <p>A blank {@code q} is normalised to null so the query skips the text
+     * predicate entirely rather than matching against an empty tsquery.
+     */
+    @Transactional(readOnly = true)
+    public Page<EventSummaryResponse> search(String query,
+                                             Long venueId,
+                                             Instant startingFrom,
+                                             Instant startingBefore,
+                                             boolean onlyAvailable,
+                                             Pageable pageable) {
+
+        String normalisedQuery = (query == null || query.isBlank()) ? null : query.trim();
+        Pageable unsorted = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize());
+
+        return eventRepository
+                .search(normalisedQuery, venueId, startingFrom, startingBefore, onlyAvailable, unsorted)
+                .map(EventSummaryResponse::from);
     }
 
     @Transactional(readOnly = true)
