@@ -18,6 +18,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,38 +38,58 @@ public class BookingService {
     private final BookingRepository bookingRepository;
     private final EventRepository eventRepository;
     private final EventSeatRepository eventSeatRepository;
+    private final JdbcTemplate jdbcTemplate;
     private final Clock clock;
     private final Duration holdDuration;
+    private final String lockTimeout;
 
     public BookingService(BookingRepository bookingRepository,
                           EventRepository eventRepository,
                           EventSeatRepository eventSeatRepository,
+                          JdbcTemplate jdbcTemplate,
                           Clock clock,
-                          @Value("${seatflow.booking.hold-duration:PT10M}") Duration holdDuration) {
+                          @Value("${seatflow.booking.hold-duration:PT10M}") Duration holdDuration,
+                          @Value("${seatflow.booking.lock-timeout:3s}") String lockTimeout) {
         this.bookingRepository = bookingRepository;
         this.eventRepository = eventRepository;
         this.eventSeatRepository = eventSeatRepository;
+        this.jdbcTemplate = jdbcTemplate;
         this.clock = clock;
         this.holdDuration = holdDuration;
+        this.lockTimeout = lockTimeout;
     }
 
     /**
      * Holds the requested seats for a limited time.
      *
-     * <h4>This method has a known race condition</h4>
+     * <h4>Why the seats are locked</h4>
      *
-     * The availability check below reads each seat and then writes it. Two
-     * requests for the same seat can both read it as AVAILABLE before either
-     * writes, and both will succeed - the seat is sold twice. {@code
-     * @Transactional} does not prevent this: it gives atomicity, not isolation
-     * from a concurrent writer, and under PostgreSQL's default READ COMMITTED
-     * both transactions see a consistent snapshot that simply predates the
+     * Reading a seat, checking it is free, and then writing it is not safe
+     * under concurrency: two requests can both pass the check before either
+     * writes. {@code @Transactional} does not help - it provides atomicity, not
+     * isolation from a concurrent writer, and under PostgreSQL's default
+     * READ COMMITTED both transactions work from a snapshot that predates the
      * other's write.
      *
-     * <p>This is deliberate. Issue #7 reproduces the race with a concurrent
-     * test and then closes it, so the repository records the problem and the
-     * fix as separate, reviewable steps rather than presenting the answer as if
-     * it had been obvious.
+     * <h4>Why pessimistic rather than optimistic</h4>
+     *
+     * The {@code @Version} column on EventSeat already prevented a seat from
+     * being sold twice - Hibernate appends {@code and version = ?} to the
+     * update and the losers' updates match no row. Measured with 24 requests
+     * for one seat, it held: exactly one booking was created. But the other 23
+     * surfaced as ObjectOptimisticLockingFailureException after doing all their
+     * work, which is a 500 for the caller and 23 wasted transactions.
+     *
+     * <p>Optimistic locking is the right tool when conflicts are rare, because
+     * it costs nothing when there is no contention. Selling the last seat of a
+     * popular event is the opposite case: contention is the normal state, and
+     * the cheap path is never taken. Locking the rows up front turns the
+     * contenders into a queue where each gets a definitive answer on its first
+     * attempt, instead of a crowd that all do the work and all but one throw it
+     * away.
+     *
+     * <p>The version column stays. It costs one integer comparison and guards
+     * any path that updates a seat without taking the lock first.
      */
     @Transactional
     public BookingResponse hold(CreateBookingRequest request) {
@@ -88,6 +109,16 @@ public class BookingService {
         settleLapsedHolds(request.eventId(), now);
 
         Set<Long> requestedIds = new LinkedHashSet<>(request.seatIds());
+
+        // Bound the wait. Without a timeout a contending request blocks until
+        // the holder's transaction ends, and a stuck transaction would hang
+        // every caller behind it instead of failing a few of them quickly.
+        jdbcTemplate.queryForObject(
+                "select set_config('lock_timeout', ?, true)", String.class, lockTimeout);
+
+        // Take the locks, then read the attributes. Everything from here to
+        // commit is the only writer for these rows.
+        eventSeatRepository.lockAllByIdOrdered(requestedIds);
         List<EventSeat> seats = eventSeatRepository.findAllByIdOrdered(requestedIds);
 
         if (seats.size() != requestedIds.size()) {
@@ -101,7 +132,8 @@ public class BookingService {
                     "All seats must belong to event %d".formatted(request.eventId()));
         }
 
-        // The race lives here: read, then write. See the method comment.
+        // Safe now: these rows are locked, so a status read here cannot be
+        // stale by the time it is acted on.
         seats.forEach(seat -> {
             if (!seat.isAvailable()) {
                 throw new SeatUnavailableException(seat.getId(), seat.getStatus());

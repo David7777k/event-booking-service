@@ -2,7 +2,9 @@ package io.github.david7777k.seatflow.catalog.repository;
 
 import io.github.david7777k.seatflow.catalog.domain.EventSeat;
 import io.github.david7777k.seatflow.catalog.domain.SeatStatus;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -60,4 +62,32 @@ public interface EventSeatRepository extends JpaRepository<EventSeat, Long> {
             order by es.id
             """)
     List<EventSeat> findByBookingId(@Param("bookingId") Long bookingId);
+
+    /**
+     * Takes a row-level write lock on the requested seats.
+     *
+     * <p>Issues {@code SELECT ... FOR UPDATE}. A competing transaction asking
+     * for the same seat blocks here, and when it is let through it reads the
+     * row as it now stands rather than as it stood before the winner wrote.
+     * That is what turns "read, then write" into a decision made once.
+     *
+     * <p>{@code order by es.id} is required for correctness, not tidiness.
+     * Locks are taken row by row in the order rows are returned, so two
+     * requests for seats {1, 2} and {2, 1} would each hold one and wait for the
+     * other - a deadlock the database would resolve by killing one of them.
+     * A fixed acquisition order makes that impossible.
+     *
+     * <p>No {@code join fetch} here: FOR UPDATE applies to every table in the
+     * statement, and locking each physical seat as well would block unrelated
+     * events that merely use the same venue. Attributes are read afterwards by
+     * {@link #findAllByIdOrdered}, which finds the rows already in the
+     * persistence context.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select es from EventSeat es
+            where es.id in :ids
+            order by es.id
+            """)
+    List<EventSeat> lockAllByIdOrdered(@Param("ids") Collection<Long> ids);
 }
