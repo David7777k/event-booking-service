@@ -96,6 +96,35 @@ public class EventSeat {
         return status == SeatStatus.AVAILABLE;
     }
 
+    /**
+     * Claims the seat for a booking.
+     *
+     * <p>The status check here is not what makes double-booking impossible:
+     * between reading this row and writing it, another transaction can do the
+     * same. Issue #7 closes that window. The database keeps the invariant that
+     * a taken seat always names its booking, whatever this method does.
+     */
+    public void hold(Long bookingId) {
+        if (status != SeatStatus.AVAILABLE) {
+            throw new SeatUnavailableException(id, status);
+        }
+        this.status = SeatStatus.HELD;
+        this.bookingId = bookingId;
+    }
+
+    public void markBooked() {
+        if (status != SeatStatus.HELD) {
+            throw new SeatUnavailableException(id, status);
+        }
+        this.status = SeatStatus.BOOKED;
+    }
+
+    /** Returns the seat to circulation when its booking ends without a sale. */
+    public void release() {
+        this.status = SeatStatus.AVAILABLE;
+        this.bookingId = null;
+    }
+
     @Override
     public boolean equals(Object other) {
         if (this == other) {

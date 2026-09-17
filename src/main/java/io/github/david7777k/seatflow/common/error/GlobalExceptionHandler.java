@@ -1,5 +1,7 @@
 package io.github.david7777k.seatflow.common.error;
 
+import io.github.david7777k.seatflow.booking.domain.HoldExpiredException;
+import io.github.david7777k.seatflow.catalog.domain.SeatUnavailableException;
 import org.hibernate.exception.ConstraintViolationException;
 import org.postgresql.util.PSQLException;
 import org.postgresql.util.ServerErrorMessage;
@@ -39,10 +41,36 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return problem;
     }
 
+    /**
+     * A seat somebody else already holds.
+     *
+     * <p>Handled ahead of the general conflict case so the response can name
+     * the seat: a client that asked for four seats and lost one of them can
+     * drop it and retry with the rest.
+     */
+    @ExceptionHandler(SeatUnavailableException.class)
+    ProblemDetail handleSeatUnavailable(SeatUnavailableException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
+        problem.setTitle("Seat unavailable");
+        problem.setProperty("seatId", ex.getSeatId());
+        return problem;
+    }
+
     @ExceptionHandler(ConflictException.class)
     ProblemDetail handleConflict(ConflictException ex) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
         problem.setTitle("Conflicting request");
+        return problem;
+    }
+
+    /**
+     * 410 rather than 409: the hold existed and no longer does. A client should
+     * start over with a fresh selection, not retry the same request.
+     */
+    @ExceptionHandler(HoldExpiredException.class)
+    ProblemDetail handleHoldExpired(HoldExpiredException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.GONE, ex.getMessage());
+        problem.setTitle("Hold expired");
         return problem;
     }
 
