@@ -1,11 +1,14 @@
 package io.github.david7777k.seatflow;
 
+import org.junit.jupiter.api.AfterEach;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.DynamicPropertyRegistrar;
-import org.testcontainers.containers.PostgreSQLContainer;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.DynamicPropertyRegistrar;
+import org.testcontainers.containers.PostgreSQLContainer;
 
 /**
  * Base class for tests that need a real database.
@@ -26,6 +29,26 @@ public abstract class AbstractIntegrationTest {
 
     static {
         POSTGRES.start();
+    }
+
+    @Autowired
+    protected JdbcTemplate jdbcTemplate;
+
+    /**
+     * Isolation between tests comes from truncating tables, not from rolling
+     * back a surrounding transaction.
+     *
+     * <p>A test-managed transaction would make every write invisible to other
+     * connections, which is precisely what the concurrency tests later in this
+     * project need to observe. Using one strategy everywhere keeps those tests
+     * from being a special case that behaves differently from the rest.
+     */
+    @AfterEach
+    void truncateAllTables() {
+        jdbcTemplate.execute("""
+                truncate table event_seat, booking, event, seat, venue, app_user
+                restart identity cascade
+                """);
     }
 
     @TestConfiguration(proxyBeanMethods = false)
