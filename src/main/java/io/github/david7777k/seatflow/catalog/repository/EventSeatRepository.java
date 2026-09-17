@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 
 public interface EventSeatRepository extends JpaRepository<EventSeat, Long> {
@@ -34,4 +35,29 @@ public interface EventSeatRepository extends JpaRepository<EventSeat, Long> {
     List<EventSeat> findSeatMap(@Param("eventId") Long eventId,
                                 @Param("section") String section,
                                 @Param("onlyAvailable") boolean onlyAvailable);
+
+    /**
+     * Loads the requested seats with their physical seat attached, ordered by
+     * id.
+     *
+     * <p>The ordering is not cosmetic. Once issue #7 turns this into a locking
+     * query, two requests asking for the same seats in different orders would
+     * deadlock without a deterministic acquisition order. Establishing it here
+     * keeps that change to a single annotation.
+     */
+    @Query("""
+            select es from EventSeat es
+            join fetch es.seat
+            where es.id in :ids
+            order by es.id
+            """)
+    List<EventSeat> findAllByIdOrdered(@Param("ids") Collection<Long> ids);
+
+    @Query("""
+            select es from EventSeat es
+            join fetch es.seat
+            where es.bookingId = :bookingId
+            order by es.id
+            """)
+    List<EventSeat> findByBookingId(@Param("bookingId") Long bookingId);
 }
