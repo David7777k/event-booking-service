@@ -55,10 +55,12 @@
             <artifactId>flyway-database-postgresql</artifactId>
         </dependency>
 
+        <!-- Compile scope rather than runtime: the error handler reads the
+             constraint name from the driver's ServerErrorMessage, because
+             Hibernate leaves it null for exclusion violations. -->
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
-            <scope>runtime</scope>
         </dependency>
 
         <dependency>

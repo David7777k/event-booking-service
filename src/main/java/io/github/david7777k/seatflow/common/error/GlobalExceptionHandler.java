@@ -1,5 +1,8 @@
 package io.github.david7777k.seatflow.common.error;
 
+import org.hibernate.exception.ConstraintViolationException;
+import org.postgresql.util.PSQLException;
+import org.postgresql.util.ServerErrorMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -75,13 +78,81 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
      * It is reported as a conflict rather than a server error, and the driver
      * message is logged rather than returned - it leaks table and column names.
      */
+    /**
+     * Constraints whose violation a client can act on, mapped to a message that
+     * says what actually happened.
+     *
+     * <p>Only constraints listed here get a specific message. Anything else
+     * falls back to a generic conflict: an unrecognised violation is a bug in
+     * this service, and guessing at an explanation would mislead the caller.
+     */
+    private static final Map<String, String> CONSTRAINT_MESSAGES = Map.of(
+            "event_no_overlap_per_venue",
+            "The venue already hosts an event during this time range",
+
+            "event_seat_unique",
+            "That seat is already offered at this event",
+
+            "seat_unique_in_venue",
+            "That seat already exists at this venue",
+
+            "app_user_email_key",
+            "An account with this email already exists");
+
+    private static final String GENERIC_CONFLICT = "Request conflicts with existing data";
+
     @ExceptionHandler(DataIntegrityViolationException.class)
     ProblemDetail handleIntegrityViolation(DataIntegrityViolationException ex) {
-        log.warn("Database constraint rejected a write", ex);
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
-                HttpStatus.CONFLICT, "Request conflicts with existing data");
+        String constraint = constraintNameOf(ex);
+
+        // getOrDefault is not null-safe here: Map.of produces an immutable map
+        // that throws on a null key even on lookup, and the constraint name is
+        // absent for some violations.
+        String detail = constraint == null
+                ? GENERIC_CONFLICT
+                : CONSTRAINT_MESSAGES.getOrDefault(constraint, GENERIC_CONFLICT);
+
+        log.warn("Constraint {} rejected a write", constraint == null ? "(unknown)" : constraint, ex);
+
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, detail);
         problem.setTitle("Conflicting request");
         return problem;
+    }
+
+    /**
+     * Walks the cause chain for the name of the constraint that rejected the
+     * write.
+     *
+     * <p>Hibernate reports it for a unique violation but leaves it null for an
+     * exclusion violation, so the driver is consulted as well: PostgreSQL sends
+     * the constraint name as a field of the error, and reading that field is
+     * sound in a way that parsing the message text is not.
+     *
+     * <p>This ties the handler to PostgreSQL. That is already true of the whole
+     * project - exclusion constraints, generated tsvector columns and row-level
+     * locking are all PostgreSQL behaviour - so the dependency is acknowledged
+     * rather than hidden.
+     *
+     * <p>The message itself is never returned to the client: it carries table
+     * and column names.
+     */
+    private static String constraintNameOf(Throwable throwable) {
+        for (Throwable cause = throwable; cause != null; cause = cause.getCause()) {
+            if (cause instanceof ConstraintViolationException violation
+                    && violation.getConstraintName() != null) {
+                return violation.getConstraintName();
+            }
+            if (cause instanceof PSQLException psql) {
+                ServerErrorMessage error = psql.getServerErrorMessage();
+                if (error != null && error.getConstraint() != null) {
+                    return error.getConstraint();
+                }
+            }
+            if (cause == cause.getCause()) {
+                break;
+            }
+        }
+        return null;
     }
 
     /**
