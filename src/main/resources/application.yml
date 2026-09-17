@@ -25,6 +25,18 @@ spring:
     enabled: true
     locations: classpath:db/migration
 
+  data:
+    web:
+      pageable:
+        # Hard ceiling on page size. Without it a client can pass ?size=100000
+        # and turn a paginated endpoint back into a full table scan.
+        max-page-size: 100
+        default-page-size: 20
+        # Serialise pages through an explicit DTO. Writing PageImpl straight to
+        # JSON exposes Spring Data internals as the API contract, and Spring
+        # Data itself declares that shape unstable across versions.
+        serialization-mode: via_dto
+
 server:
   port: ${SERVER_PORT:8080}
 
