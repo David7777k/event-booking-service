@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -38,4 +39,36 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
               and b.expiresAt < :now
             """)
     List<Booking> findLapsedHolds(@Param("eventId") Long eventId, @Param("now") Instant now);
+
+    /**
+     * Claims a batch of lapsed holds for this worker, skipping any another
+     * worker is already holding.
+     *
+     * <p>{@code FOR UPDATE SKIP LOCKED} is what makes several instances of this
+     * service safe to run at once. Without {@code FOR UPDATE} two workers would
+     * both read the same rows and both try to expire them. With {@code FOR
+     * UPDATE} alone the second worker would block until the first committed,
+     * turning parallel workers into a queue. {@code SKIP LOCKED} tells
+     * PostgreSQL to pass over rows that are already locked, so each worker
+     * walks away with a disjoint batch and they make progress in parallel.
+     *
+     * <p>Native SQL because JPA has no portable way to express SKIP LOCKED;
+     * only ids are returned, and the rows are then loaded as entities inside
+     * the same transaction, still holding the locks.
+     *
+     * <p>Ordered by expiry so the holds that lapsed longest ago are released
+     * first, and their seats spend the least time off the market.
+     */
+    @Query(value = """
+            select b.id
+            from booking b
+            where b.status = 'PENDING'
+              and b.expires_at < :now
+            order by b.expires_at
+            limit :batchSize
+            for update skip locked
+            """, nativeQuery = true)
+    List<Long> claimLapsedHoldIds(@Param("now") Instant now, @Param("batchSize") int batchSize);
+
+    List<Booking> findByIdIn(Collection<Long> ids);
 }
