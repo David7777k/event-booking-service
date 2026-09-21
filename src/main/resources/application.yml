@@ -37,6 +37,17 @@ spring:
         # Data itself declares that shape unstable across versions.
         serialization-mode: via_dto
 
+seatflow:
+  security:
+    jwt:
+      # No default on purpose. A service that falls back to a baked-in secret
+      # starts happily in production with a key that is public knowledge, so
+      # failing to start is the safer behaviour.
+      secret: ${JWT_SECRET}
+      access-token-ttl: ${JWT_ACCESS_TOKEN_TTL:PT30M}
+      issuer: seatflow
+    bcrypt-strength: ${BCRYPT_STRENGTH:12}
+
 server:
   port: ${SERVER_PORT:8080}
 
