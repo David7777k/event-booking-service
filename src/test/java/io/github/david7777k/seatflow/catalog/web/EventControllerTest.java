@@ -28,7 +28,7 @@ class EventControllerTest extends AbstractIntegrationTest {
 
     @BeforeEach
     void createVenueWithSeats() throws Exception {
-        MvcResult result = mockMvc.perform(post("/api/v1/venues")
+        MvcResult result = mockMvc.perform(post("/api/v1/venues").with(asAdmin())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"name": "Main Hall", "address": "Kyiv"}
@@ -40,7 +40,7 @@ class EventControllerTest extends AbstractIntegrationTest {
         venueId = Long.parseLong(location.substring(location.lastIndexOf('/') + 1));
 
         // section A: 2 rows of 5 = 10 seats, section B: 1 row of 4 = 4 seats
-        mockMvc.perform(post("/api/v1/venues/{id}/seats", venueId)
+        mockMvc.perform(post("/api/v1/venues/{id}/seats", venueId).with(asAdmin())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"sections": [
@@ -55,7 +55,7 @@ class EventControllerTest extends AbstractIntegrationTest {
 
     @Test
     void createsEventAsDraftAndMaterialisesEverySeat() throws Exception {
-        mockMvc.perform(post("/api/v1/events")
+        mockMvc.perform(post("/api/v1/events").with(asAdmin())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(eventJson("Spring Boot Conference",
                                 "2026-11-01T18:00:00Z", "2026-11-01T21:00:00Z")))
@@ -89,7 +89,7 @@ class EventControllerTest extends AbstractIntegrationTest {
 
     @Test
     void refusesEventAtVenueWithoutSeatMap() throws Exception {
-        MvcResult result = mockMvc.perform(post("/api/v1/venues")
+        MvcResult result = mockMvc.perform(post("/api/v1/venues").with(asAdmin())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"name": "Empty Hall", "address": "Lviv"}
@@ -100,7 +100,7 @@ class EventControllerTest extends AbstractIntegrationTest {
         String location = result.getResponse().getHeader("Location");
         long emptyVenue = Long.parseLong(location.substring(location.lastIndexOf('/') + 1));
 
-        mockMvc.perform(post("/api/v1/events")
+        mockMvc.perform(post("/api/v1/events").with(asAdmin())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"venueId": %d, "title": "Nowhere",
@@ -115,7 +115,7 @@ class EventControllerTest extends AbstractIntegrationTest {
 
     @Test
     void refusesEventForUnknownVenue() throws Exception {
-        mockMvc.perform(post("/api/v1/events")
+        mockMvc.perform(post("/api/v1/events").with(asAdmin())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"venueId": 999, "title": "Ghost",
@@ -133,7 +133,7 @@ class EventControllerTest extends AbstractIntegrationTest {
         createEvent("First", "2026-11-01T18:00:00Z", "2026-11-01T21:00:00Z");
 
         // starts while the first one is still running
-        mockMvc.perform(post("/api/v1/events")
+        mockMvc.perform(post("/api/v1/events").with(asAdmin())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(eventJson("Overlapping",
                                 "2026-11-01T20:00:00Z", "2026-11-01T23:00:00Z")))
@@ -148,7 +148,7 @@ class EventControllerTest extends AbstractIntegrationTest {
 
         // the range is half-open, so starting exactly when the previous one ends
         // is not an overlap
-        mockMvc.perform(post("/api/v1/events")
+        mockMvc.perform(post("/api/v1/events").with(asAdmin())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(eventJson("Right after",
                                 "2026-11-01T21:00:00Z", "2026-11-01T23:00:00Z")))
@@ -159,12 +159,12 @@ class EventControllerTest extends AbstractIntegrationTest {
     void freesTheSlotWhenTheOccupyingEventIsCancelled() throws Exception {
         long first = createEvent("First", "2026-11-01T18:00:00Z", "2026-11-01T21:00:00Z");
 
-        mockMvc.perform(post("/api/v1/events/{id}/cancel", first))
+        mockMvc.perform(post("/api/v1/events/{id}/cancel", first).with(asAdmin()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("CANCELLED"));
 
         // the constraint excludes cancelled events, so the slot is open again
-        mockMvc.perform(post("/api/v1/events")
+        mockMvc.perform(post("/api/v1/events").with(asAdmin())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(eventJson("Replacement",
                                 "2026-11-01T19:00:00Z", "2026-11-01T22:00:00Z")))
@@ -177,7 +177,7 @@ class EventControllerTest extends AbstractIntegrationTest {
     void publishesDraftEvent() throws Exception {
         long eventId = createEvent("To publish", "2026-11-01T18:00:00Z", "2026-11-01T21:00:00Z");
 
-        mockMvc.perform(post("/api/v1/events/{id}/publish", eventId))
+        mockMvc.perform(post("/api/v1/events/{id}/publish", eventId).with(asAdmin()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PUBLISHED"));
     }
@@ -185,9 +185,9 @@ class EventControllerTest extends AbstractIntegrationTest {
     @Test
     void refusesToPublishTwice() throws Exception {
         long eventId = createEvent("Once", "2026-11-01T18:00:00Z", "2026-11-01T21:00:00Z");
-        mockMvc.perform(post("/api/v1/events/{id}/publish", eventId)).andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/events/{id}/publish", eventId).with(asAdmin())).andExpect(status().isOk());
 
-        mockMvc.perform(post("/api/v1/events/{id}/publish", eventId))
+        mockMvc.perform(post("/api/v1/events/{id}/publish", eventId).with(asAdmin()))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.detail").value(
                         "Event %d cannot move from PUBLISHED to PUBLISHED".formatted(eventId)));
@@ -196,9 +196,9 @@ class EventControllerTest extends AbstractIntegrationTest {
     @Test
     void refusesToPublishCancelledEvent() throws Exception {
         long eventId = createEvent("Dead", "2026-11-01T18:00:00Z", "2026-11-01T21:00:00Z");
-        mockMvc.perform(post("/api/v1/events/{id}/cancel", eventId)).andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/events/{id}/cancel", eventId).with(asAdmin())).andExpect(status().isOk());
 
-        mockMvc.perform(post("/api/v1/events/{id}/publish", eventId))
+        mockMvc.perform(post("/api/v1/events/{id}/publish", eventId).with(asAdmin()))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.detail").value(
                         "Event %d cannot move from CANCELLED to PUBLISHED".formatted(eventId)));
@@ -207,9 +207,9 @@ class EventControllerTest extends AbstractIntegrationTest {
     @Test
     void cancelsPublishedEvent() throws Exception {
         long eventId = createEvent("Live", "2026-11-01T18:00:00Z", "2026-11-01T21:00:00Z");
-        mockMvc.perform(post("/api/v1/events/{id}/publish", eventId)).andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/events/{id}/publish", eventId).with(asAdmin())).andExpect(status().isOk());
 
-        mockMvc.perform(post("/api/v1/events/{id}/cancel", eventId))
+        mockMvc.perform(post("/api/v1/events/{id}/cancel", eventId).with(asAdmin()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("CANCELLED"));
     }
@@ -218,7 +218,7 @@ class EventControllerTest extends AbstractIntegrationTest {
 
     @Test
     void rejectsEventEndingBeforeItStarts() throws Exception {
-        mockMvc.perform(post("/api/v1/events")
+        mockMvc.perform(post("/api/v1/events").with(asAdmin())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(eventJson("Backwards",
                                 "2026-11-01T21:00:00Z", "2026-11-01T18:00:00Z")))
@@ -229,7 +229,7 @@ class EventControllerTest extends AbstractIntegrationTest {
 
     @Test
     void rejectsSalesWindowOpeningAfterEventStarts() throws Exception {
-        mockMvc.perform(post("/api/v1/events")
+        mockMvc.perform(post("/api/v1/events").with(asAdmin())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"venueId": %d, "title": "Too late",
@@ -244,7 +244,7 @@ class EventControllerTest extends AbstractIntegrationTest {
 
     @Test
     void rejectsNegativePrice() throws Exception {
-        mockMvc.perform(post("/api/v1/events")
+        mockMvc.perform(post("/api/v1/events").with(asAdmin())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"venueId": %d, "title": "Free money",
@@ -300,7 +300,7 @@ class EventControllerTest extends AbstractIntegrationTest {
     }
 
     private long createEvent(String title, String startsAt, String endsAt) throws Exception {
-        MvcResult result = mockMvc.perform(post("/api/v1/events")
+        MvcResult result = mockMvc.perform(post("/api/v1/events").with(asAdmin())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(eventJson(title, startsAt, endsAt)))
                 .andExpect(status().isCreated())

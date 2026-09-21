@@ -268,7 +268,7 @@ class EventSearchTest extends AbstractIntegrationTest {
     // --- helpers -------------------------------------------------------------
 
     private long createVenueWithSeats(String name) throws Exception {
-        MvcResult result = mockMvc.perform(post("/api/v1/venues")
+        MvcResult result = mockMvc.perform(post("/api/v1/venues").with(asAdmin())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"name": "%s", "address": "Ukraine"}
@@ -279,7 +279,7 @@ class EventSearchTest extends AbstractIntegrationTest {
         String location = result.getResponse().getHeader("Location");
         long venueId = Long.parseLong(location.substring(location.lastIndexOf('/') + 1));
 
-        mockMvc.perform(post("/api/v1/venues/{id}/seats", venueId)
+        mockMvc.perform(post("/api/v1/venues/{id}/seats", venueId).with(asAdmin())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"sections": [{"name": "A", "rows": ["1"], "seatsPerRow": 6}]}
@@ -291,7 +291,7 @@ class EventSearchTest extends AbstractIntegrationTest {
 
     private long createEvent(long venueId, String title, String description,
                              String startsAt, String endsAt) throws Exception {
-        MvcResult result = mockMvc.perform(post("/api/v1/events")
+        MvcResult result = mockMvc.perform(post("/api/v1/events").with(asAdmin())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"venueId": %d, "title": "%s", "description": "%s",
@@ -308,7 +308,7 @@ class EventSearchTest extends AbstractIntegrationTest {
     }
 
     private void publish(long eventId) throws Exception {
-        mockMvc.perform(post("/api/v1/events/{id}/publish", eventId))
+        mockMvc.perform(post("/api/v1/events/{id}/publish", eventId).with(asAdmin()))
                 .andExpect(status().isOk());
     }
 }
