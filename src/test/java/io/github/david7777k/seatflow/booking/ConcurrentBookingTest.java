@@ -97,8 +97,8 @@ class ConcurrentBookingTest extends AbstractIntegrationTest {
                         ready.countDown();
                         startSignal.await();
 
-                        bookingService.hold(new CreateBookingRequest(
-                                eventId, userId, List.of(contestedSeatId)));
+                        bookingService.hold(
+                                new CreateBookingRequest(eventId, List.of(contestedSeatId)), userId);
                         succeeded.incrementAndGet();
 
                     } catch (ConflictException expected) {
@@ -168,8 +168,8 @@ class ConcurrentBookingTest extends AbstractIntegrationTest {
                 pool.submit(() -> {
                     try {
                         startSignal.await();
-                        bookingService.hold(new CreateBookingRequest(
-                                eventId, userId, List.of(contestedSeatId)));
+                        bookingService.hold(
+                                new CreateBookingRequest(eventId, List.of(contestedSeatId)), userId);
                     } catch (Exception ignored) {
                         // outcome per thread is asserted by the test above
                     } finally {
@@ -203,7 +203,7 @@ class ConcurrentBookingTest extends AbstractIntegrationTest {
     // --- helpers --------------------------------------------------------------
 
     private long createVenueWithSingleSeat() throws Exception {
-        MvcResult result = mockMvc.perform(post("/api/v1/venues")
+        MvcResult result = mockMvc.perform(post("/api/v1/venues").with(asAdmin())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"name": "Tiny Hall", "address": "Kyiv"}
@@ -214,7 +214,7 @@ class ConcurrentBookingTest extends AbstractIntegrationTest {
         String location = result.getResponse().getHeader("Location");
         long venueId = Long.parseLong(location.substring(location.lastIndexOf('/') + 1));
 
-        mockMvc.perform(post("/api/v1/venues/{id}/seats", venueId)
+        mockMvc.perform(post("/api/v1/venues/{id}/seats", venueId).with(asAdmin())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"sections": [{"name": "A", "rows": ["1"], "seatsPerRow": 1}]}
@@ -225,7 +225,7 @@ class ConcurrentBookingTest extends AbstractIntegrationTest {
     }
 
     private long createEvent(long venueId) throws Exception {
-        MvcResult result = mockMvc.perform(post("/api/v1/events")
+        MvcResult result = mockMvc.perform(post("/api/v1/events").with(asAdmin())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"venueId": %d, "title": "Sold Out Show", "description": "One seat only",
@@ -242,6 +242,6 @@ class ConcurrentBookingTest extends AbstractIntegrationTest {
     }
 
     private void publish(long id) throws Exception {
-        mockMvc.perform(post("/api/v1/events/{id}/publish", id)).andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/events/{id}/publish", id).with(asAdmin())).andExpect(status().isOk());
     }
 }

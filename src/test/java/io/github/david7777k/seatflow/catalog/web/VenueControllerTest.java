@@ -26,7 +26,7 @@ class VenueControllerTest extends AbstractIntegrationTest {
 
     @Test
     void createsVenueAndReturnsItsLocation() throws Exception {
-        mockMvc.perform(post("/api/v1/venues")
+        mockMvc.perform(post("/api/v1/venues").with(asAdmin())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"name": "Main Hall", "address": "Kyiv, Khreshchatyk 1"}
@@ -40,7 +40,7 @@ class VenueControllerTest extends AbstractIntegrationTest {
 
     @Test
     void rejectsVenueWithBlankName() throws Exception {
-        mockMvc.perform(post("/api/v1/venues")
+        mockMvc.perform(post("/api/v1/venues").with(asAdmin())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"name": "   ", "address": "Kyiv"}
@@ -52,7 +52,7 @@ class VenueControllerTest extends AbstractIntegrationTest {
 
     @Test
     void rejectsVenueWithMissingAddress() throws Exception {
-        mockMvc.perform(post("/api/v1/venues")
+        mockMvc.perform(post("/api/v1/venues").with(asAdmin())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"name": "Main Hall"}
@@ -78,7 +78,7 @@ class VenueControllerTest extends AbstractIntegrationTest {
         long venueId = createVenue("Main Hall");
 
         // 2 sections: A has 3 rows of 10, B has 2 rows of 5 => 30 + 10 = 40
-        mockMvc.perform(post("/api/v1/venues/{id}/seats", venueId)
+        mockMvc.perform(post("/api/v1/venues/{id}/seats", venueId).with(asAdmin())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"sections": [
@@ -103,7 +103,7 @@ class VenueControllerTest extends AbstractIntegrationTest {
         long venueId = createVenue("Main Hall");
         createSeatMap(venueId);
 
-        mockMvc.perform(post("/api/v1/venues/{id}/seats", venueId)
+        mockMvc.perform(post("/api/v1/venues/{id}/seats", venueId).with(asAdmin())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"sections": [{"name": "A", "rows": ["1"], "seatsPerRow": 2}]}
@@ -116,7 +116,7 @@ class VenueControllerTest extends AbstractIntegrationTest {
     void rejectsSeatMapWithNoSections() throws Exception {
         long venueId = createVenue("Main Hall");
 
-        mockMvc.perform(post("/api/v1/venues/{id}/seats", venueId)
+        mockMvc.perform(post("/api/v1/venues/{id}/seats", venueId).with(asAdmin())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"sections": []}
@@ -129,7 +129,7 @@ class VenueControllerTest extends AbstractIntegrationTest {
     void rejectsSeatMapWithSeatsPerRowAboveLimit() throws Exception {
         long venueId = createVenue("Main Hall");
 
-        mockMvc.perform(post("/api/v1/venues/{id}/seats", venueId)
+        mockMvc.perform(post("/api/v1/venues/{id}/seats", venueId).with(asAdmin())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"sections": [{"name": "A", "rows": ["1"], "seatsPerRow": 5000}]}
@@ -141,7 +141,7 @@ class VenueControllerTest extends AbstractIntegrationTest {
 
     @Test
     void refusesSeatMapForUnknownVenue() throws Exception {
-        mockMvc.perform(post("/api/v1/venues/{id}/seats", 999)
+        mockMvc.perform(post("/api/v1/venues/{id}/seats", 999).with(asAdmin())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"sections": [{"name": "A", "rows": ["1"], "seatsPerRow": 2}]}
@@ -153,7 +153,7 @@ class VenueControllerTest extends AbstractIntegrationTest {
     void filtersSeatMapBySection() throws Exception {
         long venueId = createVenue("Main Hall");
 
-        mockMvc.perform(post("/api/v1/venues/{id}/seats", venueId)
+        mockMvc.perform(post("/api/v1/venues/{id}/seats", venueId).with(asAdmin())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"sections": [
@@ -198,7 +198,7 @@ class VenueControllerTest extends AbstractIntegrationTest {
     // --- helpers ------------------------------------------------------------
 
     private long createVenue(String name) throws Exception {
-        MvcResult result = mockMvc.perform(post("/api/v1/venues")
+        MvcResult result = mockMvc.perform(post("/api/v1/venues").with(asAdmin())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"name": "%s", "address": "Kyiv"}
@@ -211,7 +211,7 @@ class VenueControllerTest extends AbstractIntegrationTest {
     }
 
     private void createSeatMap(long venueId) throws Exception {
-        mockMvc.perform(post("/api/v1/venues/{id}/seats", venueId)
+        mockMvc.perform(post("/api/v1/venues/{id}/seats", venueId).with(asAdmin())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"sections": [{"name": "A", "rows": ["1"], "seatsPerRow": 6}]}

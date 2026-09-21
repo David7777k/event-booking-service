@@ -92,7 +92,7 @@ public class BookingService {
      * any path that updates a seat without taking the lock first.
      */
     @Transactional
-    public BookingResponse hold(CreateBookingRequest request) {
+    public BookingResponse hold(CreateBookingRequest request, long userId) {
         Instant now = clock.instant();
 
         Event event = eventRepository.findById(request.eventId())
@@ -145,7 +145,7 @@ public class BookingService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         Booking booking = new Booking(
-                request.eventId(), request.userId(), total, now.plus(holdDuration));
+                request.eventId(), userId, total, now.plus(holdDuration));
         bookingRepository.saveAndFlush(booking);
 
         seats.forEach(seat -> seat.hold(booking.getId()));
@@ -164,9 +164,9 @@ public class BookingService {
      * must not end up with two.
      */
     @Transactional
-    public BookingResponse confirm(long bookingId, String idempotencyKey) {
+    public BookingResponse confirm(long bookingId, String idempotencyKey, long requesterId) {
         Instant now = clock.instant();
-        Booking booking = requireBooking(bookingId);
+        Booking booking = requireOwnBooking(bookingId, requesterId, false);
 
         if (booking.getStatus() == BookingStatus.CONFIRMED) {
             if (idempotencyKey != null && idempotencyKey.equals(booking.getIdempotencyKey())) {
@@ -194,8 +194,8 @@ public class BookingService {
     }
 
     @Transactional
-    public BookingResponse cancel(long bookingId) {
-        Booking booking = requireBooking(bookingId);
+    public BookingResponse cancel(long bookingId, long requesterId, boolean admin) {
+        Booking booking = requireOwnBooking(bookingId, requesterId, admin);
 
         List<EventSeat> seats = eventSeatRepository.findByBookingId(bookingId);
         booking.cancel();
@@ -214,8 +214,8 @@ public class BookingService {
      * see a reservation that is no longer real.
      */
     @Transactional
-    public BookingResponse get(long bookingId) {
-        Booking booking = requireBooking(bookingId);
+    public BookingResponse get(long bookingId, long requesterId, boolean admin) {
+        Booking booking = requireOwnBooking(bookingId, requesterId, admin);
         expireIfLapsed(booking, clock.instant());
         return response(booking);
     }
@@ -259,6 +259,25 @@ public class BookingService {
     private Booking requireBooking(long bookingId) {
         return bookingRepository.findById(bookingId)
                 .orElseThrow(() -> new ResourceNotFoundException("Booking", bookingId));
+    }
+
+    /**
+     * Loads a booking the caller is entitled to act on.
+     *
+     * <p>Ownership is checked here rather than in the controller, so no future
+     * entry point can reach a booking without passing it. Administrators may
+     * read and cancel any booking; nobody may confirm somebody else's, since
+     * confirming is an act of purchase.
+     */
+    private Booking requireOwnBooking(long bookingId, long requesterId, boolean admin) {
+        Booking booking = requireBooking(bookingId);
+
+        if (!admin && !booking.getUserId().equals(requesterId)) {
+            // Deliberately the same 404 an unknown id produces. A 403 here
+            // would confirm that a booking with this id exists.
+            throw new ResourceNotFoundException("Booking", bookingId);
+        }
+        return booking;
     }
 
     private BookingResponse response(Booking booking) {

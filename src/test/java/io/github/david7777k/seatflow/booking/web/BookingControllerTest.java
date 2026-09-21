@@ -76,7 +76,7 @@ class BookingControllerTest extends AbstractIntegrationTest {
 
     @Test
     void holdsSeatsAndReportsWhenTheHoldLapses() throws Exception {
-        mockMvc.perform(post("/api/v1/bookings")
+        mockMvc.perform(post("/api/v1/bookings").with(asUser(userId))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(bookingJson(seatIds.get(0), seatIds.get(1))))
                 .andExpect(status().isCreated())
@@ -90,12 +90,12 @@ class BookingControllerTest extends AbstractIntegrationTest {
 
     @Test
     void refusesSeatAlreadyHeldBySomeoneElse() throws Exception {
-        mockMvc.perform(post("/api/v1/bookings")
+        mockMvc.perform(post("/api/v1/bookings").with(asUser(userId))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(bookingJson(seatIds.get(0))))
                 .andExpect(status().isCreated());
 
-        mockMvc.perform(post("/api/v1/bookings")
+        mockMvc.perform(post("/api/v1/bookings").with(asUser(userId))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(bookingJson(seatIds.get(0))))
                 .andExpect(status().isConflict())
@@ -110,11 +110,11 @@ class BookingControllerTest extends AbstractIntegrationTest {
         List<Long> draftSeats = jdbcTemplate.queryForList(
                 "select id from event_seat where event_id = ? order by id", Long.class, draft);
 
-        mockMvc.perform(post("/api/v1/bookings")
+        mockMvc.perform(post("/api/v1/bookings").with(asUser(userId))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"eventId": %d, "userId": %d, "seatIds": [%d]}
-                                """.formatted(draft, userId, draftSeats.get(0))))
+                                {"eventId": %d, "seatIds": [%d]}
+                                """.formatted(draft, draftSeats.get(0))))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.detail").value("Event %d is not on sale".formatted(draft)));
     }
@@ -123,7 +123,7 @@ class BookingControllerTest extends AbstractIntegrationTest {
     void refusesToBookBeforeSalesOpen() throws Exception {
         CLOCK.set(Instant.parse("2026-09-01T12:00:00Z"));
 
-        mockMvc.perform(post("/api/v1/bookings")
+        mockMvc.perform(post("/api/v1/bookings").with(asUser(userId))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(bookingJson(seatIds.get(0))))
                 .andExpect(status().isConflict());
@@ -136,11 +136,11 @@ class BookingControllerTest extends AbstractIntegrationTest {
         Long foreignSeat = jdbcTemplate.queryForObject(
                 "select min(id) from event_seat where event_id = ?", Long.class, otherEvent);
 
-        mockMvc.perform(post("/api/v1/bookings")
+        mockMvc.perform(post("/api/v1/bookings").with(asUser(userId))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"eventId": %d, "userId": %d, "seatIds": [%d, %d]}
-                                """.formatted(eventId, userId, seatIds.get(0), foreignSeat)))
+                                {"eventId": %d, "seatIds": [%d, %d]}
+                                """.formatted(eventId, seatIds.get(0), foreignSeat)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.detail")
                         .value("All seats must belong to event %d".formatted(eventId)));
@@ -148,21 +148,21 @@ class BookingControllerTest extends AbstractIntegrationTest {
 
     @Test
     void returnsNotFoundForUnknownSeat() throws Exception {
-        mockMvc.perform(post("/api/v1/bookings")
+        mockMvc.perform(post("/api/v1/bookings").with(asUser(userId))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"eventId": %d, "userId": %d, "seatIds": [999999]}
-                                """.formatted(eventId, userId)))
+                                {"eventId": %d, "seatIds": [999999]}
+                                """.formatted(eventId)))
                 .andExpect(status().isNotFound());
     }
 
     @Test
     void rejectsEmptySeatSelection() throws Exception {
-        mockMvc.perform(post("/api/v1/bookings")
+        mockMvc.perform(post("/api/v1/bookings").with(asUser(userId))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"eventId": %d, "userId": %d, "seatIds": []}
-                                """.formatted(eventId, userId)))
+                                {"eventId": %d, "seatIds": []}
+                                """.formatted(eventId)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors.seatIds").value("at least one seat is required"));
     }
@@ -173,7 +173,7 @@ class BookingControllerTest extends AbstractIntegrationTest {
     void confirmsHeldBooking() throws Exception {
         long bookingId = hold(seatIds.get(0), seatIds.get(1));
 
-        mockMvc.perform(post("/api/v1/bookings/{id}/confirm", bookingId)
+        mockMvc.perform(post("/api/v1/bookings/{id}/confirm", bookingId).with(asUser(userId))
                         .header("Idempotency-Key", "key-1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("CONFIRMED"))
@@ -187,12 +187,12 @@ class BookingControllerTest extends AbstractIntegrationTest {
     void replayingConfirmationWithSameKeyReturnsSameBooking() throws Exception {
         long bookingId = hold(seatIds.get(0));
 
-        mockMvc.perform(post("/api/v1/bookings/{id}/confirm", bookingId)
+        mockMvc.perform(post("/api/v1/bookings/{id}/confirm", bookingId).with(asUser(userId))
                         .header("Idempotency-Key", "key-1"))
                 .andExpect(status().isOk());
 
         // the client timed out and retried with the same key
-        mockMvc.perform(post("/api/v1/bookings/{id}/confirm", bookingId)
+        mockMvc.perform(post("/api/v1/bookings/{id}/confirm", bookingId).with(asUser(userId))
                         .header("Idempotency-Key", "key-1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("CONFIRMED"))
@@ -203,11 +203,11 @@ class BookingControllerTest extends AbstractIntegrationTest {
     void refusesSecondConfirmationWithDifferentKey() throws Exception {
         long bookingId = hold(seatIds.get(0));
 
-        mockMvc.perform(post("/api/v1/bookings/{id}/confirm", bookingId)
+        mockMvc.perform(post("/api/v1/bookings/{id}/confirm", bookingId).with(asUser(userId))
                         .header("Idempotency-Key", "key-1"))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(post("/api/v1/bookings/{id}/confirm", bookingId)
+        mockMvc.perform(post("/api/v1/bookings/{id}/confirm", bookingId).with(asUser(userId))
                         .header("Idempotency-Key", "key-2"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.detail")
@@ -220,7 +220,7 @@ class BookingControllerTest extends AbstractIntegrationTest {
 
         CLOCK.advance(Duration.ofMinutes(11));
 
-        mockMvc.perform(post("/api/v1/bookings/{id}/confirm", bookingId))
+        mockMvc.perform(post("/api/v1/bookings/{id}/confirm", bookingId).with(asUser(userId)))
                 .andExpect(status().isGone())
                 .andExpect(jsonPath("$.title").value("Hold expired"));
     }
@@ -232,7 +232,7 @@ class BookingControllerTest extends AbstractIntegrationTest {
 
         CLOCK.advance(Duration.ofMinutes(11));
 
-        mockMvc.perform(get("/api/v1/bookings/{id}", bookingId))
+        mockMvc.perform(get("/api/v1/bookings/{id}", bookingId).with(asUser(userId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("EXPIRED"));
 
@@ -244,7 +244,7 @@ class BookingControllerTest extends AbstractIntegrationTest {
         hold(seatIds.get(0));
         CLOCK.advance(Duration.ofMinutes(11));
 
-        mockMvc.perform(post("/api/v1/bookings")
+        mockMvc.perform(post("/api/v1/bookings").with(asUser(userId))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(bookingJson(seatIds.get(0))))
                 .andExpect(status().isCreated())
@@ -257,7 +257,7 @@ class BookingControllerTest extends AbstractIntegrationTest {
     void cancellingReleasesSeats() throws Exception {
         long bookingId = hold(seatIds.get(0), seatIds.get(1));
 
-        mockMvc.perform(delete("/api/v1/bookings/{id}", bookingId))
+        mockMvc.perform(delete("/api/v1/bookings/{id}", bookingId).with(asUser(userId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("CANCELLED"));
 
@@ -268,9 +268,9 @@ class BookingControllerTest extends AbstractIntegrationTest {
     @Test
     void refusesToCancelConfirmedBooking() throws Exception {
         long bookingId = hold(seatIds.get(0));
-        mockMvc.perform(post("/api/v1/bookings/{id}/confirm", bookingId)).andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/bookings/{id}/confirm", bookingId).with(asUser(userId))).andExpect(status().isOk());
 
-        mockMvc.perform(delete("/api/v1/bookings/{id}", bookingId))
+        mockMvc.perform(delete("/api/v1/bookings/{id}", bookingId).with(asUser(userId)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.detail")
                         .value("Booking %d cannot move from CONFIRMED to CANCELLED".formatted(bookingId)));
@@ -283,14 +283,14 @@ class BookingControllerTest extends AbstractIntegrationTest {
         hold(seatIds.get(0));
         hold(seatIds.get(1));
 
-        mockMvc.perform(get("/api/v1/bookings").param("userId", String.valueOf(userId)))
+        mockMvc.perform(get("/api/v1/bookings").with(asUser(userId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content", hasSize(2)));
     }
 
     @Test
     void returnsNotFoundForUnknownBooking() throws Exception {
-        mockMvc.perform(get("/api/v1/bookings/999999"))
+        mockMvc.perform(get("/api/v1/bookings/999999").with(asUser(userId)))
                 .andExpect(status().isNotFound());
     }
 
@@ -299,12 +299,12 @@ class BookingControllerTest extends AbstractIntegrationTest {
     private String bookingJson(Long... seats) {
         String ids = String.join(", ", java.util.Arrays.stream(seats).map(String::valueOf).toList());
         return """
-                {"eventId": %d, "userId": %d, "seatIds": [%s]}
-                """.formatted(eventId, userId, ids);
+                {"eventId": %d, "seatIds": [%s]}
+                """.formatted(eventId, ids);
     }
 
     private long hold(Long... seats) throws Exception {
-        MvcResult result = mockMvc.perform(post("/api/v1/bookings")
+        MvcResult result = mockMvc.perform(post("/api/v1/bookings").with(asUser(userId))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(bookingJson(seats)))
                 .andExpect(status().isCreated())
@@ -320,7 +320,7 @@ class BookingControllerTest extends AbstractIntegrationTest {
     }
 
     private long createVenue() throws Exception {
-        MvcResult result = mockMvc.perform(post("/api/v1/venues")
+        MvcResult result = mockMvc.perform(post("/api/v1/venues").with(asAdmin())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"name": "Hall %d", "address": "Kyiv"}
@@ -331,7 +331,7 @@ class BookingControllerTest extends AbstractIntegrationTest {
         String location = result.getResponse().getHeader("Location");
         long venueId = Long.parseLong(location.substring(location.lastIndexOf('/') + 1));
 
-        mockMvc.perform(post("/api/v1/venues/{id}/seats", venueId)
+        mockMvc.perform(post("/api/v1/venues/{id}/seats", venueId).with(asAdmin())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"sections": [{"name": "A", "rows": ["1"], "seatsPerRow": 5}]}
@@ -342,7 +342,7 @@ class BookingControllerTest extends AbstractIntegrationTest {
     }
 
     private long createEvent(long venueId) throws Exception {
-        MvcResult result = mockMvc.perform(post("/api/v1/events")
+        MvcResult result = mockMvc.perform(post("/api/v1/events").with(asAdmin())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"venueId": %d, "title": "Concert", "description": "Live music",
@@ -359,7 +359,7 @@ class BookingControllerTest extends AbstractIntegrationTest {
     }
 
     private void publish(long id) throws Exception {
-        mockMvc.perform(post("/api/v1/events/{id}/publish", id)).andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/events/{id}/publish", id).with(asAdmin())).andExpect(status().isOk());
     }
 
     /** A clock a test can move. */

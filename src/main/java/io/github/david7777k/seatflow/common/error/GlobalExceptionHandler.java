@@ -15,6 +15,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -55,6 +57,35 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
         problem.setTitle("Seat unavailable");
         problem.setProperty("seatId", ex.getSeatId());
+        return problem;
+    }
+
+    /**
+     * Wrong password, or an email with no account behind it.
+     *
+     * <p>One message for both. Saying which of the two failed hands an attacker
+     * a way to discover which addresses are registered.
+     */
+    @ExceptionHandler(BadCredentialsException.class)
+    ProblemDetail handleBadCredentials(BadCredentialsException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+                HttpStatus.UNAUTHORIZED, "Invalid email or password");
+        problem.setTitle("Authentication failed");
+        return problem;
+    }
+
+    /**
+     * Authenticated, but not allowed to do this.
+     *
+     * <p>401 means "I do not know who you are", 403 means "I know, and the
+     * answer is no". Returning 401 here would tell a client to go and get a
+     * token it already has.
+     */
+    @ExceptionHandler(AccessDeniedException.class)
+    ProblemDetail handleAccessDenied(AccessDeniedException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+                HttpStatus.FORBIDDEN, "You are not allowed to perform this action");
+        problem.setTitle("Access denied");
         return problem;
     }
 
