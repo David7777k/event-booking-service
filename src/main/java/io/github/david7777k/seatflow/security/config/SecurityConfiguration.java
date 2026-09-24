@@ -100,6 +100,11 @@ public class SecurityConfiguration {
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 
                 .authorizeHttpRequests(requests -> requests
+                        // API documentation and the health endpoint are open, so the
+                        // service can be explored and probed without credentials.
+                        .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
+                        .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
+
                         // Registration and login must be reachable without a token.
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/**").permitAll()
 
