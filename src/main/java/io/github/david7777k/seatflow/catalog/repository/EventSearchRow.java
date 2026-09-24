@@ -3,12 +3,8 @@ package io.github.david7777k.seatflow.catalog.repository;
 import java.time.Instant;
 
 /**
- * Projection for the search query.
- *
- * <p>An interface projection rather than the {@code Event} entity: the result
- * needs the venue name and a seat count that the entity does not carry, and
- * returning entities would either detach them or trigger a query per row for
- * the LAZY venue.
+ * Projection for the search query: needs the venue name and a seat count that
+ * Event does not carry, and avoids a query per row for the LAZY venue.
  */
 public interface EventSearchRow {
 

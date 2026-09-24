@@ -1,12 +1,6 @@
 package io.github.david7777k.seatflow.booking.domain;
 
-/**
- * A hold ran out before it was confirmed.
- *
- * <p>Reported as 410 Gone rather than 409: the reservation genuinely existed
- * and no longer does, which is a different thing for a client to handle than a
- * request that conflicts with current state.
- */
+/** A hold ran out before it was confirmed. Answered as 410, not 409. */
 public class HoldExpiredException extends RuntimeException {
 
     public HoldExpiredException(Long bookingId) {
