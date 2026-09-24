@@ -1,0 +1,11 @@
+# Keep the build context small and free of anything that must not reach an image.
+target/
+.git/
+.github/
+.idea/
+*.iml
+.env
+*.log
+README.md
+CHANGELOG.md
+docs/
