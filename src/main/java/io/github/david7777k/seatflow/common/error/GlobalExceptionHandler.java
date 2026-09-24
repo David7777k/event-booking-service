@@ -26,13 +26,7 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 import java.util.Map;
 import java.util.TreeMap;
 
-/**
- * Translates exceptions into RFC 9457 problem responses.
- *
- * <p>Errors are returned in a machine-readable shape rather than as free text,
- * so a client can branch on the status and on individual field errors without
- * parsing prose.
- */
+/** Translates exceptions into RFC 9457 problem responses. */
 @RestControllerAdvice
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
@@ -45,13 +39,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return problem;
     }
 
-    /**
-     * A seat somebody else already holds.
-     *
-     * <p>Handled ahead of the general conflict case so the response can name
-     * the seat: a client that asked for four seats and lost one of them can
-     * drop it and retry with the rest.
-     */
+    /** Names the seat, so a client that lost one of four can retry with the rest. */
     @ExceptionHandler(SeatUnavailableException.class)
     ProblemDetail handleSeatUnavailable(SeatUnavailableException ex) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
@@ -60,12 +48,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return problem;
     }
 
-    /**
-     * Wrong password, or an email with no account behind it.
-     *
-     * <p>One message for both. Saying which of the two failed hands an attacker
-     * a way to discover which addresses are registered.
-     */
+    /** One message for both cases: the difference would leak which emails exist. */
     @ExceptionHandler(BadCredentialsException.class)
     ProblemDetail handleBadCredentials(BadCredentialsException ex) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(
@@ -74,13 +57,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return problem;
     }
 
-    /**
-     * Authenticated, but not allowed to do this.
-     *
-     * <p>401 means "I do not know who you are", 403 means "I know, and the
-     * answer is no". Returning 401 here would tell a client to go and get a
-     * token it already has.
-     */
+    /** 403, not 401: we know who the caller is, the answer is still no. */
     @ExceptionHandler(AccessDeniedException.class)
     ProblemDetail handleAccessDenied(AccessDeniedException ex) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(
@@ -107,10 +84,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return problem;
     }
 
-    /**
-     * Bean Validation failures. Field errors are returned as a map so a client
-     * can attach each message to the input that produced it.
-     */
+    /** Field errors come back as a map so a client can attach each to its input. */
     @Override
     protected ResponseEntity<Object> handleMethodArgumentNotValid(
             MethodArgumentNotValidException ex,
@@ -131,21 +105,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     /**
-     * A constraint rejected the write.
-     *
-     * <p>This is not a failure of the database but the database doing its job:
-     * every invariant this service depends on is expressed as a constraint, so
-     * a violation means application code tried something it should not have.
-     * It is reported as a conflict rather than a server error, and the driver
-     * message is logged rather than returned - it leaks table and column names.
-     */
-    /**
-     * Constraints whose violation a client can act on, mapped to a message that
-     * says what actually happened.
-     *
-     * <p>Only constraints listed here get a specific message. Anything else
-     * falls back to a generic conflict: an unrecognised violation is a bug in
-     * this service, and guessing at an explanation would mislead the caller.
+     * Only constraints listed here get a specific message. An unrecognised
+     * violation is a bug here, and guessing would mislead the caller.
      */
     private static final Map<String, String> CONSTRAINT_MESSAGES = Map.of(
             "event_no_overlap_per_venue",
@@ -181,21 +142,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     /**
-     * Walks the cause chain for the name of the constraint that rejected the
-     * write.
-     *
-     * <p>Hibernate reports it for a unique violation but leaves it null for an
-     * exclusion violation, so the driver is consulted as well: PostgreSQL sends
-     * the constraint name as a field of the error, and reading that field is
-     * sound in a way that parsing the message text is not.
-     *
-     * <p>This ties the handler to PostgreSQL. That is already true of the whole
-     * project - exclusion constraints, generated tsvector columns and row-level
-     * locking are all PostgreSQL behaviour - so the dependency is acknowledged
-     * rather than hidden.
-     *
-     * <p>The message itself is never returned to the client: it carries table
-     * and column names.
+     * Hibernate reports the constraint name for a unique violation but leaves
+     * it null for an exclusion one, so the driver is consulted too. The message
+     * text is never returned - it carries table and column names.
      */
     private static String constraintNameOf(Throwable throwable) {
         for (Throwable cause = throwable; cause != null; cause = cause.getCause()) {
@@ -217,12 +166,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     /**
-     * Somebody changed the row between our reading it and writing it.
-     *
-     * <p>The booking path locks its rows and should never reach this, but any
-     * path that updates a seat without locking first would, and the version
-     * column exists precisely to catch that. Reported as a conflict, since from
-     * the caller's side it is the same situation as losing a seat.
+     * The booking path locks its rows and should never reach this; any path
+     * that updates a seat without locking first would.
      */
     @ExceptionHandler(OptimisticLockingFailureException.class)
     ProblemDetail handleOptimisticLockFailure(OptimisticLockingFailureException ex) {
@@ -233,13 +178,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return problem;
     }
 
-    /**
-     * The lock could not be taken within the timeout.
-     *
-     * <p>503 with Retry-After, not 409: nothing about the request is wrong and
-     * repeating it may well succeed. This is back pressure, and saying so lets
-     * a client back off instead of hammering.
-     */
+    /** 503 with Retry-After, not 409: the request is fine, a retry may work. */
     @ExceptionHandler(CannotAcquireLockException.class)
     ResponseEntity<ProblemDetail> handleLockTimeout(CannotAcquireLockException ex) {
         log.warn("Timed out waiting for a row lock", ex);

@@ -22,9 +22,8 @@ public interface EventSeatRepository extends JpaRepository<EventSeat, Long> {
     /**
      * The seat map of an event.
      *
-     * <p>{@code join fetch es.seat} is load-bearing: every row in the response
-     * needs the section, row and number, and without it each of them would
-     * trigger its own select - the N+1 that a seat map makes very expensive.
+     * <p>The join fetch matters: without it every row would fetch its Seat
+     * separately, which on a seat map is the worst possible N+1.
      */
     @Query("""
             select es from EventSeat es
@@ -42,10 +41,8 @@ public interface EventSeatRepository extends JpaRepository<EventSeat, Long> {
      * Loads the requested seats with their physical seat attached, ordered by
      * id.
      *
-     * <p>The ordering is not cosmetic. Once issue #7 turns this into a locking
-     * query, two requests asking for the same seats in different orders would
-     * deadlock without a deterministic acquisition order. Establishing it here
-     * keeps that change to a single annotation.
+     * <p>Ordered by id to match the locking query, which needs a deterministic
+     * acquisition order.
      */
     @Query("""
             select es from EventSeat es
@@ -66,22 +63,10 @@ public interface EventSeatRepository extends JpaRepository<EventSeat, Long> {
     /**
      * Takes a row-level write lock on the requested seats.
      *
-     * <p>Issues {@code SELECT ... FOR UPDATE}. A competing transaction asking
-     * for the same seat blocks here, and when it is let through it reads the
-     * row as it now stands rather than as it stood before the winner wrote.
-     * That is what turns "read, then write" into a decision made once.
-     *
-     * <p>{@code order by es.id} is required for correctness, not tidiness.
-     * Locks are taken row by row in the order rows are returned, so two
-     * requests for seats {1, 2} and {2, 1} would each hold one and wait for the
-     * other - a deadlock the database would resolve by killing one of them.
-     * A fixed acquisition order makes that impossible.
-     *
-     * <p>No {@code join fetch} here: FOR UPDATE applies to every table in the
-     * statement, and locking each physical seat as well would block unrelated
-     * events that merely use the same venue. Attributes are read afterwards by
-     * {@link #findAllByIdOrdered}, which finds the rows already in the
-     * persistence context.
+     * <p>Two details are load-bearing. {@code order by es.id} prevents a
+     * deadlock between requests naming the same seats in different orders. And
+     * there is no join fetch, because FOR UPDATE applies to every table in the
+     * statement and would lock physical seats of unrelated events too.
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""

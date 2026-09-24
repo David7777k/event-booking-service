@@ -62,34 +62,14 @@ public class BookingService {
     /**
      * Holds the requested seats for a limited time.
      *
-     * <h4>Why the seats are locked</h4>
+     * <p>The seats are locked before their availability is read. Reading a seat,
+     * checking it is free, then writing it is not safe under concurrency:
+     * {@code @Transactional} gives atomicity, not isolation from a concurrent
+     * writer.
      *
-     * Reading a seat, checking it is free, and then writing it is not safe
-     * under concurrency: two requests can both pass the check before either
-     * writes. {@code @Transactional} does not help - it provides atomicity, not
-     * isolation from a concurrent writer, and under PostgreSQL's default
-     * READ COMMITTED both transactions work from a snapshot that predates the
-     * other's write.
-     *
-     * <h4>Why pessimistic rather than optimistic</h4>
-     *
-     * The {@code @Version} column on EventSeat already prevented a seat from
-     * being sold twice - Hibernate appends {@code and version = ?} to the
-     * update and the losers' updates match no row. Measured with 24 requests
-     * for one seat, it held: exactly one booking was created. But the other 23
-     * surfaced as ObjectOptimisticLockingFailureException after doing all their
-     * work, which is a 500 for the caller and 23 wasted transactions.
-     *
-     * <p>Optimistic locking is the right tool when conflicts are rare, because
-     * it costs nothing when there is no contention. Selling the last seat of a
-     * popular event is the opposite case: contention is the normal state, and
-     * the cheap path is never taken. Locking the rows up front turns the
-     * contenders into a queue where each gets a definitive answer on its first
-     * attempt, instead of a crowd that all do the work and all but one throw it
-     * away.
-     *
-     * <p>The version column stays. It costs one integer comparison and guards
-     * any path that updates a seat without taking the lock first.
+     * <p>Pessimistic rather than optimistic because contention here is the
+     * normal state, not the exception - the README has the measurement behind
+     * that choice.
      */
     @Transactional
     public BookingResponse hold(CreateBookingRequest request, long userId) {
