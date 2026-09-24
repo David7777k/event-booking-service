@@ -16,5 +16,32 @@ services:
       timeout: 3s
       retries: 10
 
+  app:
+    build: .
+    container_name: seatflow-app
+    # Waits for the database to answer, not merely to have been started.
+    # Flyway runs at boot and would fail against a container that is up but is
+    # not yet accepting connections.
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-seatflow}
+      DB_USER: ${DB_USER:-seatflow}
+      DB_PASSWORD: ${DB_PASSWORD:-seatflow}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set, copy .env.example to .env}
+      JWT_ACCESS_TOKEN_TTL: ${JWT_ACCESS_TOKEN_TTL:-PT30M}
+      BCRYPT_STRENGTH: ${BCRYPT_STRENGTH:-12}
+    ports:
+      - "${SERVER_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:8080/actuator/health | grep -q UP"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 30s
+
 volumes:
   postgres-data:
