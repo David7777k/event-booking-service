@@ -5,6 +5,8 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.Lock;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
@@ -13,6 +15,10 @@ import java.util.List;
 import java.util.Optional;
 
 public interface BookingRepository extends JpaRepository<Booking, Long> {
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select b from Booking b where b.id = :id")
+    Optional<Booking> findLockedById(@Param("id") Long id);
 
     Page<Booking> findByUserIdOrderByCreatedAtDesc(Long userId, Pageable pageable);
 
@@ -24,11 +30,13 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
      * something settles them, so a booking attempt clears the ones in its way
      * rather than waiting for the sweep.
      */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
             select b from Booking b
             where b.eventId = :eventId
               and b.status = io.github.david7777k.seatflow.booking.domain.BookingStatus.PENDING
-              and b.expiresAt < :now
+              and b.expiresAt <= :now
+            order by b.id
             """)
     List<Booking> findLapsedHolds(@Param("eventId") Long eventId, @Param("now") Instant now);
 
@@ -47,7 +55,7 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
             select b.id
             from booking b
             where b.status = 'PENDING'
-              and b.expires_at < :now
+              and b.expires_at <= :now
             order by b.expires_at
             limit :batchSize
             for update skip locked

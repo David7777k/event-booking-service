@@ -53,4 +53,4 @@ server:
 
 logging:
   level:
-    io.github.david7777k.seatflow: DEBUG
+    io.github.david7777k.seatflow: INFO

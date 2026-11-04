@@ -86,6 +86,7 @@ public class BookingService {
         // Settle any lapsed holds on this event first. Until they are settled
         // their seats read as HELD and stay unsellable, even though nobody has
         // a claim on them any more.
+        configureLockTimeout();
         settleLapsedHolds(request.eventId(), now);
 
         Set<Long> requestedIds = new LinkedHashSet<>(request.seatIds());
@@ -93,8 +94,7 @@ public class BookingService {
         // Bound the wait. Without a timeout a contending request blocks until
         // the holder's transaction ends, and a stuck transaction would hang
         // every caller behind it instead of failing a few of them quickly.
-        jdbcTemplate.queryForObject(
-                "select set_config('lock_timeout', ?, true)", String.class, lockTimeout);
+        configureLockTimeout();
 
         // Take the locks, then read the attributes. Everything from here to
         // commit is the only writer for these rows.
@@ -143,10 +143,10 @@ public class BookingService {
      * and retries must not be told its booking is in an impossible state, and
      * must not end up with two.
      */
-    @Transactional
+    @Transactional(noRollbackFor = HoldExpiredException.class)
     public BookingResponse confirm(long bookingId, String idempotencyKey, long requesterId) {
-        Instant now = clock.instant();
         Booking booking = requireOwnBooking(bookingId, requesterId, false);
+        Instant now = clock.instant();
 
         if (booking.getStatus() == BookingStatus.CONFIRMED) {
             if (idempotencyKey != null && idempotencyKey.equals(booking.getIdempotencyKey())) {
@@ -236,8 +236,14 @@ public class BookingService {
         }
     }
 
+    private void configureLockTimeout() {
+        jdbcTemplate.queryForObject(
+                "select set_config('lock_timeout', ?, true)", String.class, lockTimeout);
+    }
+
     private Booking requireBooking(long bookingId) {
-        return bookingRepository.findById(bookingId)
+        configureLockTimeout();
+        return bookingRepository.findLockedById(bookingId)
                 .orElseThrow(() -> new ResourceNotFoundException("Booking", bookingId));
     }
 
