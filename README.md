@@ -11,7 +11,7 @@ Java 21 · Spring Boot · PostgreSQL 17 · Flyway · Spring Security · JWT · T
 - **Concurrent booking:** seat rows are locked before availability is checked. Locks are requested in ID order, and a transaction-level timeout bounds the wait.
 - **Database constraints:** PostgreSQL prevents overlapping events at a venue and inconsistent seat/booking states.
 - **Hold expiry:** a scheduled worker uses `FOR UPDATE SKIP LOCKED` to claim batches. Booking operations also settle expired holds.
-- **Confirmation retries:** an idempotency key allows a client to repeat a successful confirmation.
+- **Confirmation retries:** an idempotency key allows a client to repeat a successful confirmation. Booking row locks serialize state changes against concurrent requests and the expiry worker. Expired confirmation commits the release before returning `410`.
 - **Access control:** JWT authentication, user-owned bookings, and a separate admin role for catalogue management.
 
 The concurrency test starts 24 competing service calls for one seat. It asserts one successful booking, 23 conflicts, and no unexpected exceptions. This checks contention on a single seat; it is not a throughput benchmark.
@@ -66,7 +66,7 @@ Errors use Problem Details responses. Seat conflicts return `409`, expired holds
 ./mvnw verify
 ```
 
-Tests require Docker. Integration tests use PostgreSQL through Testcontainers to exercise row locks, exclusion constraints, full-text search, hold expiry, and access control. Time-dependent expiry tests use an injected `Clock`.
+Tests require Docker. Integration tests use PostgreSQL through Testcontainers to exercise row locks, exclusion constraints, full-text search, hold expiry, and access control. Time-dependent expiry tests use an injected `Clock`. Regression cases include simultaneous confirmation retries and seat release at the exact hold deadline.
 
 ## Tradeoffs and limits
 

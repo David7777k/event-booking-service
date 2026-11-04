@@ -167,6 +167,40 @@ class BookingControllerTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.errors.seatIds").value("at least one seat is required"));
     }
 
+    @Test
+    void concurrentRetriesWithTheSameKeyReturnTheSameConfirmation() throws Exception {
+        long id = hold(seatIds.get(0));
+        var start = new java.util.concurrent.CountDownLatch(1);
+        var ready = new java.util.concurrent.CountDownLatch(2);
+        try (var pool = java.util.concurrent.Executors.newFixedThreadPool(2)) {
+            java.util.concurrent.Callable<Integer> confirm = () -> {
+                ready.countDown();
+                if (!start.await(10, java.util.concurrent.TimeUnit.SECONDS)) throw new AssertionError("start timeout");
+                return mockMvc.perform(post("/api/v1/bookings/{id}/confirm", id).with(asUser(userId))
+                        .header("Idempotency-Key", "concurrent-retry"))
+                        .andReturn().getResponse().getStatus();
+            };
+            var first = pool.submit(confirm);
+            var second = pool.submit(confirm);
+            assertThat(ready.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            assertThat(first.get(15, java.util.concurrent.TimeUnit.SECONDS)).isEqualTo(200);
+            assertThat(second.get(15, java.util.concurrent.TimeUnit.SECONDS)).isEqualTo(200);
+        }
+        assertThat(seatStatus(seatIds.get(0))).isEqualTo("BOOKED");
+    }
+
+    @Test
+    void failedConfirmationCommitsExpiryAndReleasesSeatsAtTheDeadline() throws Exception {
+        long id = hold(seatIds.get(0));
+        CLOCK.advance(Duration.ofMinutes(10));
+        mockMvc.perform(post("/api/v1/bookings/{id}/confirm", id).with(asUser(userId)))
+                .andExpect(status().isGone());
+        assertThat(seatStatus(seatIds.get(0))).isEqualTo("AVAILABLE");
+        assertThat(jdbcTemplate.queryForObject("select status from booking where id = ?", String.class, id))
+                .isEqualTo("EXPIRED");
+    }
+
     // --- confirming -----------------------------------------------------------
 
     @Test
