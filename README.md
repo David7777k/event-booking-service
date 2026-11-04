@@ -38,9 +38,9 @@ cp .env.example .env
 docker compose up --build
 ```
 
-API: http://localhost:8080  
-Swagger UI: http://localhost:8080/swagger-ui.html  
-OpenAPI: http://localhost:8080/v3/api-docs
+- API: http://localhost:8080
+- Swagger UI: http://localhost:8080/swagger-ui.html
+- OpenAPI: http://localhost:8080/v3/api-docs
 
 For local development, install JDK 21, start PostgreSQL with `docker compose up -d postgres`, set `JWT_SECRET` in the shell, and run `./mvnw spring-boot:run`. On Windows use `.\mvnw.cmd` instead of `./mvnw`.
 
